@@ -17,6 +17,7 @@ class Reintegro(Base):
     cantidad = Column(Integer, nullable=False, default=1)
     descripcion_original = Column(Text, nullable=False)
     descripcion_normalizada = Column(String(255), index=True, nullable=True)
+    institucion = Column(String(255), index=True, nullable=True)
     hash_registro = Column(String(64), unique=True, index=True, nullable=False)
     archivo_origen_id = Column(Integer, ForeignKey("archivos_importados.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

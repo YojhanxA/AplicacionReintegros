@@ -18,23 +18,67 @@ def normalizar_texto(texto):
     if not texto:
         return "SIN DESCRIPCION"
 
-    texto_norm = re.sub(r"[^A-Z0-9\s]", " ", texto.upper())
+    texto_sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    texto_norm = re.sub(r"[^A-Z0-9\s]", " ", texto_sin_tildes.upper())
     texto_norm = re.sub(r"\s+", " ", texto_norm).strip()
     if not texto_norm:
         return "SIN DESCRIPCION"
 
     familias = [
-        ("SILLA", ["SILLA", "SILLAS", "SILLON", "SILLONES", "SIILLAS"]),
-        ("TABLERO", ["TABLERO", "TABLEROS"]),
-        ("MESA", ["MESA", "MESAS"]),
-        ("ESCRITORIO", ["ESCRITORIO", "ESCRITORIOS"]),
-        ("ARCHIVO", ["ARCHIVO", "ARCHIVOS"]),
-        ("BANCADA", ["BANCADA", "BANCADAS"]),
-        ("MUEBLE", ["MUEBLE", "MUEBLES"]),
+        ("COMPUTADOR PORTATIL", ["COMPUTADOR PORTATIL", "PORTATIL", "LAPTOP"]),
+        ("BASE PARA MICROFONO", ["BASE MICROFONO", "BASE PARA MICROFONO"]),
+        ("SOPORTE PARA TELEVISOR", ["SOPORTE PARA TV", "SOPORTE PARA T V", "SOPORTE PARA TELEVISOR"]),
+        ("SILLA", ["SILLA", "SILLON", "SIILLA"]),
+        ("PUPITRE", ["PUPITRE"]),
+        ("PUESTO DE TRABAJO", ["PUESTO DE TRABAJO", "PUESTOS DE TRABAJO"]),
+        ("BUTACO / TABURETE", ["BUTACO", "BUTACA", "TABURETE"]),
+        ("TABLERO", ["TABLERO"]),
+        ("MESA", ["MESA", "MESON"]),
+        ("ESCRITORIO", ["ESCRITORIO", "ESCRITORO"]),
+        ("TABLET", ["TABLET", "TABLETA"]),
+        ("ESTANTE", ["ESTANTE", "ESTANTERIA", "ESTANTER A"]),
+        ("ARCHIVADOR", ["ARCHIVADOR", "ARCHIVO", "FOLDERAMA", "PLANOTECA"]),
+        ("LOCKER", ["LOCKER", "LOKER"]),
+        ("COMPUTADOR", ["COMPUTADOR", "COMPUTADORA", "EQUIPO DE COMPUTO", "THIN CLIENT", "CPU", "PC "]),
+        ("MUEBLE", ["MUEBLE"]),
+        ("COMODA", ["COMODA"]),
+        ("VITRINA", ["VITRINA"]),
+        ("ARMARIO", ["ARMARIO", "GABINETE"]),
+        ("BIBLIOTECA", ["BIBLIOTECA"]),
+        ("ACCES POINT", ["ACCESS POINT", "ACCES POINT", "AP TIPO", "AP UBIQUITI", "PUNTO DE ACCESO"]),
+        ("SWITCH", ["SWITCH", "SWICH", "SUICHE"]),
+        ("ROUTER", ["ROUTER"]),
+        ("IMPRESORA", ["IMPRESORA"]),
+        ("MICROFONO", ["MICROFONO"]),
+        ("MICROSCOPIO", ["MICROSCOPIO"]),
+        ("CAMARA", ["CAMARA"]),
+        ("TELEVISOR", ["TELEVISOR", "TV", "T V"]),
+        ("VIDEO BEAM / PROYECTOR", ["VIDEO BEAM", "VIDEOPROYECTOR", "VIDEO PROYECTOR", "PROYECTOR"]),
+        ("PANTALLA DE PROYECCION", ["PANTALLA DE PROYECCION", "PANTALLA PROYECCION", "PANTALLA PARA PROYECCION"]),
+        ("VENTILADOR", ["VENTILADOR"]),
+        ("PARLANTE / BAFLE", ["PARLANTE", "BAFLE", "CABINA ACTIVA", "CABINA PASIVA"]),
+        ("AMPLIFICADOR", ["AMPLIFICADOR", "PLANTA DE AMPLIFICACION"]),
+        ("GRABADORA", ["GRABADORA", "RADIOGRABADORA"]),
+        ("TELEFONO", ["TELEFONO", "TEL FONO"]),
+        ("DVD / VHS", ["DVD", "VHS"]),
+        ("REGULADOR DE VOLTAJE", ["REGULADOR", "ACONDICIONADOR DE VOLTAJE", "FUENTE REGULADORA"]),
+        ("REFRIGERADOR", ["REFRIGERADOR", "NEVERA", "CONGELADOR", "ENFRIADOR"]),
+        ("LICUADORA", ["LICUADORA"]),
+        ("GENERADOR", ["GENERADOR", "GENERADORE"]),
+        ("BALANZA", ["BALANZA"]),
+        ("OSCILOSCOPIO", ["OSCILOSCOPIO", "OSCILOSCOPIOS"]),
+        ("CANECAS", ["CANECA", "CANECAS"]),
+        ("CARRO", ["CARRO", "CARRITO"]),
+        ("CAMILLA", ["CAMILLA", "CAMILLAS"]),
+        ("HIDROLAVADORA", ["HIDROLAVADORA"]),
+        ("BANCADA", ["BANCADA"]),
     ]
 
     for familia, tokens in familias:
-        if any(token in texto_norm for token in tokens):
+        if any(
+            re.search(rf"(?<![A-Z0-9]){re.escape(token.strip())}", texto_norm)
+            for token in tokens
+        ):
             return familia
 
     return texto_norm
@@ -94,6 +138,28 @@ def _extraer_fecha_desde_hoja(df, header_row):
             return pd.Timestamp(year=anio_num, month=mes_num, day=dia_num)
         except ValueError:
             continue
+
+    return None
+
+
+def _extraer_institucion_desde_hoja(df, header_row):
+    if df is None or df.empty:
+        return None
+
+    for idx in range(header_row):
+        row = df.iloc[idx].fillna("")
+        for col_idx, value in enumerate(row.tolist()):
+            etiqueta = _normalizar_busqueda(value).strip()
+            if "dependencia" not in etiqueta:
+                continue
+
+            for value_idx in range(idx + 1, header_row):
+                institucion = df.iat[value_idx, col_idx]
+                if pd.isna(institucion):
+                    continue
+                institucion = re.sub(r"\s+", " ", str(institucion)).strip()
+                if institucion and institucion.lower() not in {"nan", "none", "dependencia"}:
+                    return institucion
 
     return None
 
@@ -202,6 +268,7 @@ def _normalizar_fila_excel(file_bytes: bytes):
             continue
 
         fecha_archivo = _extraer_fecha_desde_hoja(df, header_row)
+        institucion = _extraer_institucion_desde_hoja(df, header_row)
 
         data = df.iloc[header_row + 1 :].copy()
         if data.empty:
@@ -219,13 +286,13 @@ def _normalizar_fila_excel(file_bytes: bytes):
             axis=1,
         )].copy()
 
-        sheets.append((sheet_name, header_row, data, fecha_archivo))
+        sheets.append((sheet_name, header_row, data, fecha_archivo, institucion))
     return sheets
 
 
 def procesar_excel(file_bytes: bytes, filename: str, db: Session):
     sheets = _normalizar_fila_excel(file_bytes)
-    total_registros = sum(len(df) for _, _, df, _ in sheets)
+    total_registros = sum(len(df) for _, _, df, _, _ in sheets)
     archivo_record = ArchivoImportado(nombre_archivo=filename, total_registros=total_registros)
     db.add(archivo_record)
     db.commit()
@@ -237,7 +304,7 @@ def procesar_excel(file_bytes: bytes, filename: str, db: Session):
     detalles = []
     hashes_vistos = set()
 
-    for sheet_name, header_idx, df, fecha_archivo in sheets:
+    for sheet_name, header_idx, df, fecha_archivo, institucion in sheets:
         col_placa, col_cant, col_desc, col_fecha = _identificar_columnas(df)
         if col_placa is None or col_cant is None or col_desc is None:
             continue
@@ -283,7 +350,7 @@ def procesar_excel(file_bytes: bytes, filename: str, db: Session):
                 if fecha is None:
                     fecha = _normalizar_fecha(_valor_celda(row, col_fecha))
 
-                raw_str = f"{placa}-{cantidad}-{desc_norm}-{fecha}"
+                raw_str = f"{placa}-{cantidad}-{desc_norm}-{fecha}-{institucion or ''}"
                 hash_reg = hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
 
                 existe = db.query(Reintegro).filter(Reintegro.hash_registro == hash_reg).first()
@@ -302,6 +369,7 @@ def procesar_excel(file_bytes: bytes, filename: str, db: Session):
                     cantidad=cantidad,
                     descripcion_original=desc_orig,
                     descripcion_normalizada=desc_norm,
+                    institucion=institucion,
                     hash_registro=hash_reg,
                     archivo_origen_id=archivo_record.id,
                 )

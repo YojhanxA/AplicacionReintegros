@@ -8,6 +8,7 @@ class ReintegroBase(BaseModel):
     cantidad: int
     descripcion_original: str
     descripcion_normalizada: Optional[str] = None
+    institucion: Optional[str] = None
 
 class ReintegroOut(ReintegroBase):
     id: int

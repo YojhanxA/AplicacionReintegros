@@ -11,15 +11,25 @@ type ResumenArticulo = {
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
-    total_registros: 0,
+    total_objetos: 0,
     archivos_procesados: 0,
   });
+  const [totalEsConteo, setTotalEsConteo] = useState(false);
   const [resumen, setResumen] = useState<ResumenArticulo[]>([]);
 
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/stats`)
-      .then((res) => setStats(res.data))
+      .then((res) => {
+        const tieneTotalObjetos = res.data.total_objetos !== undefined;
+        setStats({
+          total_objetos: Number(
+            res.data.total_objetos ?? res.data.total_registros ?? 0,
+          ),
+          archivos_procesados: Number(res.data.archivos_procesados ?? 0),
+        });
+        setTotalEsConteo(!tieneTotalObjetos);
+      })
       .catch(console.error);
 
     axios
@@ -34,10 +44,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-6 mb-8">
         <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
           <h2 className="text-gray-500 text-sm uppercase font-semibold">
-            Total Reintegros
+            {totalEsConteo ? "Total de reintegros" : "Total de objetos"}
           </h2>
           <p className="text-4xl font-bold text-blue-600 mt-2">
-            {stats.total_registros}
+            {stats.total_objetos.toLocaleString("es-CO")}
           </p>
         </div>
         <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
