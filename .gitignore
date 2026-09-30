@@ -1,0 +1,32 @@
+﻿# Entornos virtuales
+.venv/
+.venv312/
+.venv312-final/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Bases de datos locales
+*.db
+*.sqlite
+*.sqlite3
+
+# Sistema
+.DS_Store
+Thumbs.db
