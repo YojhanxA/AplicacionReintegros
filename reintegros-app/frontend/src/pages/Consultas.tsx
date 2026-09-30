@@ -23,17 +23,100 @@ const formatFecha = (fecha: string | null | undefined) => {
 
 export default function Consultas() {
   const [data, setData] = useState([]);
+  const [filters, setFilters] = useState({
+    fechaDesde: "",
+    fechaHasta: "",
+    articulo: "",
+    placa: "",
+  });
 
   useEffect(() => {
     axios
-      .get(`${API_BASE}/api/reintegros`)
+      .get(`${API_BASE}/api/reintegros`, {
+        params: {
+          fecha_desde: filters.fechaDesde || undefined,
+          fecha_hasta: filters.fechaHasta || undefined,
+          articulo: filters.articulo || undefined,
+          placa: filters.placa || undefined,
+        },
+      })
       .then((res) => setData(res.data))
       .catch(console.error);
-  }, []);
+  }, [filters.fechaDesde, filters.fechaHasta, filters.articulo, filters.placa]);
+
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const resetFilters = () => {
+    setFilters({ fechaDesde: "", fechaHasta: "", articulo: "", placa: "" });
+  };
 
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Consulta de Reintegros</h1>
+
+      <div className="bg-white rounded-lg shadow p-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <label className="flex flex-col text-sm font-medium text-gray-700">
+            Fecha desde
+            <input
+              type="date"
+              name="fechaDesde"
+              value={filters.fechaDesde}
+              onChange={handleChange}
+              className="mt-1 border rounded px-2 py-2"
+            />
+          </label>
+
+          <label className="flex flex-col text-sm font-medium text-gray-700">
+            Fecha hasta
+            <input
+              type="date"
+              name="fechaHasta"
+              value={filters.fechaHasta}
+              onChange={handleChange}
+              className="mt-1 border rounded px-2 py-2"
+            />
+          </label>
+
+          <label className="flex flex-col text-sm font-medium text-gray-700">
+            Artículo
+            <input
+              type="text"
+              name="articulo"
+              value={filters.articulo}
+              onChange={handleChange}
+              placeholder="SILLA"
+              className="mt-1 border rounded px-2 py-2"
+            />
+          </label>
+
+          <label className="flex flex-col text-sm font-medium text-gray-700">
+            Placa
+            <input
+              type="text"
+              name="placa"
+              value={filters.placa}
+              onChange={handleChange}
+              placeholder="200200112"
+              className="mt-1 border rounded px-2 py-2"
+            />
+          </label>
+        </div>
+
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-2 rounded"
+          >
+            Limpiar filtros
+          </button>
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead className="bg-slate-800 text-white">

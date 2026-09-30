@@ -4,23 +4,37 @@ import axios from "axios";
 const API_BASE = "http://localhost:8001";
 
 export default function Importar() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [resultado, setResultado] = useState<any>(null);
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!files.length) return;
 
     setLoading(true);
+    setUploadProgress(0);
     const formData = new FormData();
-    formData.append("file", file);
+    files.forEach((file) => {
+      formData.append("files", file);
+    });
+
+    const progressTimer = window.setInterval(() => {
+      setUploadProgress((current) => {
+        const increment = Math.max(1, Math.ceil((92 - current) * 0.08));
+        return Math.min(current + increment, 92);
+      });
+    }, 150);
 
     try {
-      const res = await axios.post(`${API_BASE}/api/importar`, formData);
+      const res = await axios.post(`${API_BASE}/api/importar-masivo`, formData);
+      setUploadProgress(100);
       setResultado(res.data);
     } catch (error) {
-      alert("Error al importar archivo");
+      setUploadProgress(0);
+      alert("Error al importar archivos");
     } finally {
+      window.clearInterval(progressTimer);
       setLoading(false);
     }
   };
@@ -32,21 +46,39 @@ export default function Importar() {
         <input
           type="file"
           accept=".xlsx, .xls"
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          multiple
+          onChange={(e) => setFiles(Array.from(e.target.files || []))}
           className="block w-full border border-gray-300 p-3 rounded mb-4"
         />
         <button
           onClick={handleUpload}
-          disabled={!file || loading}
+          disabled={!files.length || loading}
           className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? "Procesando..." : "Cargar Archivo"}
+          {loading
+            ? `Procesando... ${uploadProgress}%`
+            : `Cargar ${files.length} Archivo${files.length > 1 ? "s" : ""}`}
         </button>
+
+        {loading && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-1 text-sm text-gray-600">
+              <span>Extrayendo información de los archivos...</span>
+              <span>{uploadProgress}%</span>
+            </div>
+            <div className="h-3 w-full overflow-hidden rounded-full bg-gray-200">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-700 transition-all duration-150 ease-out"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {resultado && (
           <div className="mt-8 border-t pt-6">
             <h2 className="text-xl font-bold mb-4">
-              Resultado de la Importación
+              Resultado de la Importación Masiva
             </h2>
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-green-50 p-4 rounded border border-green-200">
@@ -66,6 +98,20 @@ export default function Importar() {
               </div>
             </div>
 
+            {resultado.archivos?.length > 0 && (
+              <div className="mb-6">
+                <h3 className="font-bold mb-2">Archivos procesados:</h3>
+                <ul className="list-disc pl-5 text-sm text-gray-700">
+                  {resultado.archivos.map((archivo: any, index: number) => (
+                    <li key={index}>
+                      {archivo.archivo}: {archivo.validos} válidos,{" "}
+                      {archivo.duplicados} duplicados, {archivo.errores} errores
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <h3 className="font-bold mb-2">
               Vista previa de registros procesados:
             </h3>
@@ -73,6 +119,7 @@ export default function Importar() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-100 text-sm">
+                    <th className="p-2 border">Archivo</th>
                     <th className="p-2 border">Fila Excel</th>
                     <th className="p-2 border">Estado</th>
                     <th className="p-2 border">Descripción Original</th>
@@ -81,6 +128,7 @@ export default function Importar() {
                 <tbody>
                   {resultado.detalles.map((d: any, i: number) => (
                     <tr key={i} className="text-sm">
+                      <td className="p-2 border">{d.archivo || "-"}</td>
                       <td className="p-2 border">{d.fila}</td>
                       <td className="p-2 border">
                         <span
