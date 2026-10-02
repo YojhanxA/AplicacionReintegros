@@ -1,7 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
-
-const API_BASE = "http://localhost:8001";
+import { API_BASE } from "../api";
 
 export default function Importar() {
   const [files, setFiles] = useState<File[]>([]);

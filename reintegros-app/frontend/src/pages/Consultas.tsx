@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { ChevronDown, FileDown } from "lucide-react";
-
-const API_BASE = "http://localhost:8001";
+import { API_BASE } from "../api";
 
 const formatFecha = (fecha: string | null | undefined) => {
   if (!fecha) return "N/A";

@@ -1,4 +1,5 @@
 from io import BytesIO
+import os
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Response
@@ -19,6 +20,12 @@ if "institucion" not in {column["name"] for column in inspect(engine).get_column
 
 app = FastAPI(title="API Reintegros")
 
+frontend_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("FRONTEND_URL", "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -26,6 +33,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        *frontend_origins,
     ],
     allow_credentials=True,
     allow_methods=["*"],
