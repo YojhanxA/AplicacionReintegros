@@ -1,5 +1,9 @@
+from io import BytesIO
+
+import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -29,11 +33,107 @@ app.add_middleware(
     expose_headers=["X-Total-Count", "X-Total-Quantity"],
 )
 
+
+def _filtrar_reintegros(db, fecha_desde, fecha_hasta, articulo, placa, institucion):
+    query = db.query(models.Reintegro)
+
+    if fecha_desde:
+        query = query.filter(models.Reintegro.fecha_reintegro >= fecha_desde)
+    if fecha_hasta:
+        query = query.filter(models.Reintegro.fecha_reintegro <= fecha_hasta)
+    if placa:
+        query = query.filter(models.Reintegro.placa.ilike(f"%{placa}%"))
+    if institucion:
+        query = query.filter(models.Reintegro.institucion.ilike(f"%{institucion}%"))
+    if articulo:
+        candidatos = query.with_entities(
+            models.Reintegro.id,
+            models.Reintegro.descripcion_original,
+        ).all()
+        ids_coincidentes = [
+            registro_id
+            for registro_id, descripcion in candidatos
+            if normalizar_texto(descripcion) == articulo
+        ]
+        query = query.filter(models.Reintegro.id.in_(ids_coincidentes))
+
+    return query
+
+
+def _ordenar_reintegros(query, ordenar_por):
+    ordenes = {
+        "fecha_desc": models.Reintegro.fecha_reintegro.desc(),
+        "fecha_asc": models.Reintegro.fecha_reintegro.asc(),
+        "cantidad_desc": models.Reintegro.cantidad.desc(),
+        "cantidad_asc": models.Reintegro.cantidad.asc(),
+        "articulo_asc": models.Reintegro.descripcion_original.asc(),
+        "articulo_desc": models.Reintegro.descripcion_original.desc(),
+        "institucion_asc": models.Reintegro.institucion.asc(),
+        "institucion_desc": models.Reintegro.institucion.desc(),
+    }
+    return query.order_by(ordenes.get(ordenar_por, models.Reintegro.id.asc()))
+
+
 @app.get("/api/stats")
 def get_stats(db: Session = Depends(get_db)):
     total_objetos = db.query(func.coalesce(func.sum(models.Reintegro.cantidad), 0)).scalar()
     archivos = db.query(models.ArchivoImportado).count()
     return {"total_objetos": total_objetos, "archivos_procesados": archivos}
+
+
+@app.get("/api/opciones-consulta")
+def opciones_consulta(db: Session = Depends(get_db)):
+    instituciones = [
+        institucion
+        for (institucion,) in db.query(models.Reintegro.institucion)
+        .filter(models.Reintegro.institucion.isnot(None))
+        .distinct()
+        .order_by(models.Reintegro.institucion)
+        .all()
+        if institucion and institucion.strip()
+    ]
+    descripciones = db.query(models.Reintegro.descripcion_original).all()
+    familias = sorted({normalizar_texto(descripcion) for (descripcion,) in descripciones})
+    return {"instituciones": instituciones, "familias": familias}
+
+
+@app.get("/api/resumen-instituciones")
+def resumen_instituciones(db: Session = Depends(get_db)):
+    rows = db.query(
+        models.Reintegro.institucion,
+        models.Reintegro.descripcion_original,
+        models.Reintegro.cantidad,
+    ).all()
+    instituciones = {}
+
+    for institucion, descripcion, cantidad in rows:
+        nombre = (institucion or "SIN INSTITUCION").strip() or "SIN INSTITUCION"
+        llave_institucion = nombre.casefold()
+        informe = instituciones.setdefault(
+            llave_institucion,
+            {"institucion": nombre, "total_cantidad": 0, "registros": 0, "familias": {}},
+        )
+        articulo = normalizar_texto(descripcion)
+        familia = informe["familias"].setdefault(
+            articulo, {"articulo": articulo, "total_cantidad": 0, "registros": 0}
+        )
+        unidades = int(cantidad or 0)
+        informe["total_cantidad"] += unidades
+        informe["registros"] += 1
+        familia["total_cantidad"] += unidades
+        familia["registros"] += 1
+
+    resultado = []
+    for informe in instituciones.values():
+        informe["familias"] = sorted(
+            informe["familias"].values(),
+            key=lambda familia: familia["total_cantidad"],
+            reverse=True,
+        )
+        resultado.append(informe)
+
+    return sorted(resultado, key=lambda informe: informe["total_cantidad"], reverse=True)
+
 
 @app.post("/api/importar", response_model=schemas.ImportPreview)
 def importar_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -94,27 +194,52 @@ def listar_reintegros(
     articulo: Optional[str] = None,
     placa: Optional[str] = None,
     institucion: Optional[str] = None,
+    ordenar_por: str = "id_asc",
     db: Session = Depends(get_db),
 ):
-    query = db.query(models.Reintegro)
-
-    if fecha_desde:
-        query = query.filter(models.Reintegro.fecha_reintegro >= fecha_desde)
-    if fecha_hasta:
-        query = query.filter(models.Reintegro.fecha_reintegro <= fecha_hasta)
-    if articulo:
-        query = query.filter(models.Reintegro.descripcion_normalizada.ilike(f"%{articulo}%"))
-    if placa:
-        query = query.filter(models.Reintegro.placa.ilike(f"%{placa}%"))
-    if institucion:
-        query = query.filter(models.Reintegro.institucion.ilike(f"%{institucion}%"))
+    query = _filtrar_reintegros(db, fecha_desde, fecha_hasta, articulo, placa, institucion)
 
     response.headers["X-Total-Count"] = str(query.count())
     response.headers["X-Total-Quantity"] = str(
         query.with_entities(func.coalesce(func.sum(models.Reintegro.cantidad), 0)).scalar()
     )
-    reintegros = query.order_by(models.Reintegro.id).offset(skip).limit(limit).all()
+    reintegros = _ordenar_reintegros(query, ordenar_por).offset(skip).limit(limit).all()
     return reintegros
+
+
+@app.get("/api/reintegros/exportar-excel")
+def exportar_reintegros_excel(
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    articulo: Optional[str] = None,
+    placa: Optional[str] = None,
+    institucion: Optional[str] = None,
+    ordenar_por: str = "id_asc",
+    db: Session = Depends(get_db),
+):
+    query = _filtrar_reintegros(db, fecha_desde, fecha_hasta, articulo, placa, institucion)
+    reintegros = _ordenar_reintegros(query, ordenar_por).all()
+    filas = [
+        {
+            "ID": reintegro.id,
+            "Fecha": reintegro.fecha_reintegro,
+            "Placa": reintegro.placa,
+            "Institución": reintegro.institucion or "SIN INSTITUCION",
+            "Familia": normalizar_texto(reintegro.descripcion_original),
+            "Descripción original": reintegro.descripcion_original,
+            "Cantidad": reintegro.cantidad,
+        }
+        for reintegro in reintegros
+    ]
+    buffer = BytesIO()
+    pd.DataFrame(filas).to_excel(buffer, index=False, sheet_name="Reintegros")
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="informe_reintegros.xlsx"'},
+    )
+
 
 @app.get("/api/resumen-articulos", response_model=List[schemas.ResumenArticulo])
 def resumen_articulos(db: Session = Depends(get_db)):
