@@ -1,5 +1,7 @@
 from io import BytesIO
 import os
+from threading import RLock
+from time import monotonic
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Response
@@ -40,6 +42,28 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Total-Count", "X-Total-Quantity"],
 )
+
+
+_RESUMEN_CACHE_TTL = 300
+_resumen_cache = {}
+_resumen_cache_lock = RLock()
+
+
+def _obtener_cacheado(clave, cargar):
+    with _resumen_cache_lock:
+        ahora = monotonic()
+        entrada = _resumen_cache.get(clave)
+        if entrada and entrada[0] > ahora:
+            return entrada[1]
+
+        resultado = cargar()
+        _resumen_cache[clave] = (ahora + _RESUMEN_CACHE_TTL, resultado)
+        return resultado
+
+
+def _invalidar_cache_resumenes():
+    with _resumen_cache_lock:
+        _resumen_cache.clear()
 
 
 def _filtrar_reintegros(db, fecha_desde, fecha_hasta, articulo, placa, institucion):
@@ -84,63 +108,72 @@ def _ordenar_reintegros(query, ordenar_por):
 
 @app.get("/api/stats")
 def get_stats(db: Session = Depends(get_db)):
-    total_objetos = db.query(func.coalesce(func.sum(models.Reintegro.cantidad), 0)).scalar()
-    archivos = db.query(models.ArchivoImportado).count()
-    return {"total_objetos": total_objetos, "archivos_procesados": archivos}
+    def cargar_stats():
+        total_objetos = db.query(func.coalesce(func.sum(models.Reintegro.cantidad), 0)).scalar()
+        archivos = db.query(models.ArchivoImportado).count()
+        return {"total_objetos": total_objetos, "archivos_procesados": archivos}
+
+    return _obtener_cacheado("stats", cargar_stats)
 
 
 @app.get("/api/opciones-consulta")
 def opciones_consulta(db: Session = Depends(get_db)):
-    instituciones = [
-        institucion
-        for (institucion,) in db.query(models.Reintegro.institucion)
-        .filter(models.Reintegro.institucion.isnot(None))
-        .distinct()
-        .order_by(models.Reintegro.institucion)
-        .all()
-        if institucion and institucion.strip()
-    ]
-    descripciones = db.query(models.Reintegro.descripcion_original).all()
-    familias = sorted({normalizar_texto(descripcion) for (descripcion,) in descripciones})
-    return {"instituciones": instituciones, "familias": familias}
+    def cargar_opciones():
+        instituciones = [
+            institucion
+            for (institucion,) in db.query(models.Reintegro.institucion)
+            .filter(models.Reintegro.institucion.isnot(None))
+            .distinct()
+            .order_by(models.Reintegro.institucion)
+            .all()
+            if institucion and institucion.strip()
+        ]
+        descripciones = db.query(models.Reintegro.descripcion_original).all()
+        familias = sorted({normalizar_texto(descripcion) for (descripcion,) in descripciones})
+        return {"instituciones": instituciones, "familias": familias}
+
+    return _obtener_cacheado("opciones-consulta", cargar_opciones)
 
 
 @app.get("/api/resumen-instituciones")
 def resumen_instituciones(db: Session = Depends(get_db)):
-    rows = db.query(
-        models.Reintegro.institucion,
-        models.Reintegro.descripcion_original,
-        models.Reintegro.cantidad,
-    ).all()
-    instituciones = {}
+    def cargar_resumen():
+        rows = db.query(
+            models.Reintegro.institucion,
+            models.Reintegro.descripcion_original,
+            models.Reintegro.cantidad,
+        ).all()
+        instituciones = {}
 
-    for institucion, descripcion, cantidad in rows:
-        nombre = (institucion or "SIN INSTITUCION").strip() or "SIN INSTITUCION"
-        llave_institucion = nombre.casefold()
-        informe = instituciones.setdefault(
-            llave_institucion,
-            {"institucion": nombre, "total_cantidad": 0, "registros": 0, "familias": {}},
-        )
-        articulo = normalizar_texto(descripcion)
-        familia = informe["familias"].setdefault(
-            articulo, {"articulo": articulo, "total_cantidad": 0, "registros": 0}
-        )
-        unidades = int(cantidad or 0)
-        informe["total_cantidad"] += unidades
-        informe["registros"] += 1
-        familia["total_cantidad"] += unidades
-        familia["registros"] += 1
+        for institucion, descripcion, cantidad in rows:
+            nombre = (institucion or "SIN INSTITUCION").strip() or "SIN INSTITUCION"
+            llave_institucion = nombre.casefold()
+            informe = instituciones.setdefault(
+                llave_institucion,
+                {"institucion": nombre, "total_cantidad": 0, "registros": 0, "familias": {}},
+            )
+            articulo = normalizar_texto(descripcion)
+            familia = informe["familias"].setdefault(
+                articulo, {"articulo": articulo, "total_cantidad": 0, "registros": 0}
+            )
+            unidades = int(cantidad or 0)
+            informe["total_cantidad"] += unidades
+            informe["registros"] += 1
+            familia["total_cantidad"] += unidades
+            familia["registros"] += 1
 
-    resultado = []
-    for informe in instituciones.values():
-        informe["familias"] = sorted(
-            informe["familias"].values(),
-            key=lambda familia: familia["total_cantidad"],
-            reverse=True,
-        )
-        resultado.append(informe)
+        resultado = []
+        for informe in instituciones.values():
+            informe["familias"] = sorted(
+                informe["familias"].values(),
+                key=lambda familia: familia["total_cantidad"],
+                reverse=True,
+            )
+            resultado.append(informe)
 
-    return sorted(resultado, key=lambda informe: informe["total_cantidad"], reverse=True)
+        return sorted(resultado, key=lambda informe: informe["total_cantidad"], reverse=True)
+
+    return _obtener_cacheado("resumen-instituciones", cargar_resumen)
 
 
 @app.post("/api/importar", response_model=schemas.ImportPreview)
@@ -149,8 +182,10 @@ def importar_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="El archivo debe ser Excel")
 
     content = file.file.read()
-    resultados = import_service.procesar_excel(content, file.filename, db)
-    return resultados
+    try:
+        return import_service.procesar_excel(content, file.filename, db)
+    finally:
+        _invalidar_cache_resumenes()
 
 @app.post("/api/importar-masivo")
 def importar_excel_masivo(files: List[UploadFile] = File(...), db: Session = Depends(get_db)):
@@ -173,7 +208,10 @@ def importar_excel_masivo(files: List[UploadFile] = File(...), db: Session = Dep
 
         try:
             content = file.file.read()
-            resultado = import_service.procesar_excel(content, file.filename, db)
+            try:
+                resultado = import_service.procesar_excel(content, file.filename, db)
+            finally:
+                _invalidar_cache_resumenes()
             resumen["validos"] += resultado.get("validos", 0)
             resumen["errores"] += resultado.get("errores", 0)
             resumen["duplicados"] += resultado.get("duplicados", 0)
@@ -251,21 +289,24 @@ def exportar_reintegros_excel(
 
 @app.get("/api/resumen-articulos", response_model=List[schemas.ResumenArticulo])
 def resumen_articulos(db: Session = Depends(get_db)):
-    rows = db.query(models.Reintegro.descripcion_original, models.Reintegro.cantidad).all()
-    acumulado = {}
-    for descripcion, cantidad in rows:
-        articulo = normalizar_texto(descripcion)
-        resumen = acumulado.setdefault(articulo, {"total_cantidad": 0, "registros": 0})
-        resumen["total_cantidad"] += int(cantidad or 0)
-        resumen["registros"] += 1
+    def cargar_resumen():
+        rows = db.query(models.Reintegro.descripcion_original, models.Reintegro.cantidad).all()
+        acumulado = {}
+        for descripcion, cantidad in rows:
+            articulo = normalizar_texto(descripcion)
+            resumen = acumulado.setdefault(articulo, {"total_cantidad": 0, "registros": 0})
+            resumen["total_cantidad"] += int(cantidad or 0)
+            resumen["registros"] += 1
 
-    return [
-        schemas.ResumenArticulo(
-            articulo=articulo,
-            total_cantidad=valores["total_cantidad"],
-            registros=valores["registros"],
-        )
-        for articulo, valores in sorted(
-            acumulado.items(), key=lambda item: item[1]["total_cantidad"], reverse=True
-        )
-    ]
+        return [
+            schemas.ResumenArticulo(
+                articulo=articulo,
+                total_cantidad=valores["total_cantidad"],
+                registros=valores["registros"],
+            )
+            for articulo, valores in sorted(
+                acumulado.items(), key=lambda item: item[1]["total_cantidad"], reverse=True
+            )
+        ]
+
+    return _obtener_cacheado("resumen-articulos", cargar_resumen)
