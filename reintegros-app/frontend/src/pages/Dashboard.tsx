@@ -225,7 +225,7 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-6 mb-8">
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
         <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
           <h2 className="text-gray-500 text-sm uppercase font-semibold">
             {totalEsConteo ? "Total de reintegros" : "Total de objetos"}
@@ -302,7 +302,7 @@ export default function Dashboard() {
                 {informe.registros.toLocaleString("es-CO")} registros
               </p>
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full min-w-[520px] text-left border-collapse">
                   <thead className="bg-slate-800 text-white">
                     <tr>
                       <th className="p-3 border-b">Familia</th>

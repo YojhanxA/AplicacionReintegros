@@ -115,7 +115,7 @@ export default function Importar() {
               Vista previa de registros procesados:
             </h3>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[600px] text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-100 text-sm">
                     <th className="p-2 border">Archivo</th>

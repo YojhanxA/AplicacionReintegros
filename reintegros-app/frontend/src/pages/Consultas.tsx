@@ -442,45 +442,47 @@ export default function Consultas() {
         )}
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-slate-800 text-white">
-            <tr>
-              <th className="p-3 border-b">ID</th>
-              <th className="p-3 border-b">Placa</th>
-              <th className="p-3 border-b">Institución</th>
-              <th className="p-3 border-b">Descripción</th>
-              <th className="p-3 border-b">Cant.</th>
-              <th className="p-3 border-b">Fecha</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.length === 0 ? (
+      <div className="overflow-hidden rounded-lg bg-white shadow">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left border-collapse">
+            <thead className="bg-slate-800 text-white">
               <tr>
-                <td colSpan={6} className="p-4 text-center text-gray-500">
-                  No hay registros
-                </td>
+                <th className="p-3 border-b">ID</th>
+                <th className="p-3 border-b">Placa</th>
+                <th className="p-3 border-b">Institución</th>
+                <th className="p-3 border-b">Descripción</th>
+                <th className="p-3 border-b">Cant.</th>
+                <th className="p-3 border-b">Fecha</th>
               </tr>
-            ) : (
-              data.map((item: any) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="p-3 border-b">{item.id}</td>
-                  <td className="p-3 border-b">{item.placa || "N/A"}</td>
-                  <td className="p-3 border-b">
-                    {item.institucion || "Sin institución"}
-                  </td>
-                  <td className="p-3 border-b">
-                    {item.descripcion_normalizada}
-                  </td>
-                  <td className="p-3 border-b">{item.cantidad}</td>
-                  <td className="p-3 border-b">
-                    {formatFecha(item.fecha_reintegro)}
+            </thead>
+            <tbody>
+              {data.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-4 text-center text-gray-500">
+                    No hay registros
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                data.map((item: any) => (
+                  <tr key={item.id} className="hover:bg-gray-50">
+                    <td className="p-3 border-b">{item.id}</td>
+                    <td className="p-3 border-b">{item.placa || "N/A"}</td>
+                    <td className="p-3 border-b">
+                      {item.institucion || "Sin institución"}
+                    </td>
+                    <td className="p-3 border-b">
+                      {item.descripcion_normalizada}
+                    </td>
+                    <td className="p-3 border-b">{item.cantidad}</td>
+                    <td className="p-3 border-b">
+                      {formatFecha(item.fecha_reintegro)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3 rounded-lg bg-white p-4 shadow sm:flex-row sm:items-center sm:justify-between">
